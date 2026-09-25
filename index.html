@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PetScan 🐾</title>
+<style>
+body{font-family:Arial,sans-serif;background:linear-gradient(135deg,#eef4ff,#f8efff);margin:0;padding:18px;color:#243447}
+.card{max-width:560px;margin:auto;background:white;padding:22px;border-radius:22px;box-shadow:0 8px 25px #0002}
+h1{text-align:center;margin:0 0 5px}.sub{text-align:center;color:#667085}
+.photo{border:2px dashed #b9c2d0;border-radius:16px;padding:18px;text-align:center;margin:18px 0}
+#preview{max-width:100%;max-height:300px;border-radius:14px;display:none;margin:14px auto}
+input[type=file]{width:100%;margin-top:12px}
+button{width:100%;margin-top:16px;padding:14px;border:0;border-radius:12px;background:#5b67f1;color:white;font-size:17px;font-weight:bold}
+button:disabled{opacity:.55}
+#estado{margin-top:15px;padding:12px;border-radius:12px;background:#f1f4ff;display:none}
+#resultado{display:none;margin-top:20px;padding:18px;background:#f1f4ff;border-radius:14px}
+.note{font-size:13px;color:#667085}
+.item{padding:10px 0;border-bottom:1px solid #dfe5f2}.item:last-child{border-bottom:0}
+.badge{display:inline-block;background:#e4f7e8;color:#26733a;padding:6px 10px;border-radius:20px;font-weight:bold}
+</style>
+</head>
+<body>
+<div class="card">
+<h1>🐾 PetScan</h1>
+<p class="sub">Toma una foto y consulta información de tu perro</p>
+
+<div class="photo">
+  <strong>📸 Foto del perro</strong>
+  <input id="foto" type="file" accept="image/*" capture="environment">
+  <img id="preview" alt="Vista previa del perro">
+  <p class="note">Selecciona una foto de tu galería o toma una nueva.</p>
+</div>
+
+<button id="analizarBtn">🤖 Reconocer raza automáticamente</button>
+<div id="estado"></div>
+<div id="resultado"></div>
+<p class="note">La raza se estima mediante IA. La esperanza de vida y los cuidados son datos generales de la raza, no un diagnóstico veterinario.</p>
+</div>
+
+<script>
+const API_BASE="https://thathungarian-barkid.hf.space";
+const foto=document.getElementById("foto");
+const preview=document.getElementById("preview");
+const btn=document.getElementById("analizarBtn");
+const estado=document.getElementById("estado");
+const resultado=document.getElementById("resultado");
+
+const razas={
+ "pug":{vida:"12–15 años",tamano:"Pequeño",caracteristicas:"Cariñoso, sociable y de hocico corto.",cuidados:"Evitar el calor, controlar el peso y limpiar los pliegues."},
+ "labrador retriever":{vida:"10–12 años",tamano:"Mediano-grande",caracteristicas:"Activo, sociable y muy entrenable.",cuidados:"Ejercicio diario, control del peso y revisiones de articulaciones."},
+ "german shepherd":{vida:"9–13 años",tamano:"Grande",caracteristicas:"Inteligente, protector y activo.",cuidados:"Ejercicio, estimulación mental y revisiones de cadera."},
+ "chihuahua":{vida:"12–20 años",tamano:"Muy pequeño",caracteristicas:"Alerta, valiente y apegado a su familia.",cuidados:"Protegerlo del frío y vigilar dientes y articulaciones."},
+ "french bulldog":{vida:"10–12 años",tamano:"Pequeño",caracteristicas:"Sociable y de hocico corto.",cuidados:"Evitar calor y ejercicio excesivo; vigilar la respiración."},
+ "golden retriever":{vida:"10–12 años",tamano:"Grande",caracteristicas:"Amistoso, inteligente y activo.",cuidados:"Ejercicio, cepillado y control del peso."},
+ "beagle":{vida:"10–15 años",tamano:"Mediano",caracteristicas:"Curioso, activo y con gran olfato.",cuidados:"Paseos, juegos de olfato y control de alimentación."}
+};
+
+foto.addEventListener("change",e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  preview.src=URL.createObjectURL(file);
+  preview.style.display="block";
+  resultado.style.display="none";
+  estado.style.display="none";
+});
+
+function mostrarEstado(texto,ok=false){
+  estado.style.display="block";
+  estado.innerHTML=(ok?"✅ ":"⏳ ")+texto;
+}
+
+function normalizar(texto){
+  return String(texto||"").toLowerCase().replace(/[()]/g,"").trim();
+}
+
+function buscarDatos(raza){
+  const r=normalizar(raza);
+  const clave=Object.keys(razas).find(k=>r.includes(k)||k.includes(r));
+  return razas[clave]||{
+    vida:"Consulta orientativa según la raza",
+    tamano:"Depende de la raza",
+    caracteristicas:"La información se debe confirmar para la raza reconocida.",
+    cuidados:"Consulta a un veterinario para recomendaciones específicas."
+  };
+}
+
+function extraerRaza(data){
+  if(typeof data==="string")return data;
+  if(Array.isArray(data)){
+    for(const x of data){
+      const r=extraerRaza(x);
+      if(r)return r;
+    }
+  }
+  if(data && typeof data==="object"){
+    for(const key of ["label","class","name","prediction","text"]){
+      if(data[key] && typeof data[key]==="string")return data[key];
+    }
+    for(const key of ["data","output","result","value","label"]){
+      if(data[key]){
+        const r=extraerRaza(data[key]);
+        if(r)return r;
+      }
+    }
+  }
+  return "";
+}
+
+async function subirArchivo(file){
+  const fd=new FormData();
+  fd.append("files",file,file.name);
+  const res=await fetch(API_BASE+"/gradio_api/upload",{method:"POST",body:fd});
+  if(!res.ok)throw new Error("No se pudo subir la fotografía.");
+  const json=await res.json();
+  const path=Array.isArray(json)?json[0]:json.path;
+  return {path,meta:{_type:"gradio.FileData"},orig_name:file.name};
+}
+
+async function obtenerFuncion(){
+  const res=await fetch(API_BASE+"/config");
+  if(!res.ok)throw new Error("No se pudo consultar la configuración de BarkID.");
+  const config=await res.json();
+  const dep=(config.dependencies||[]).find(d=>d.api_name||d.id!==undefined);
+  if(!dep)throw new Error("BarkID no mostró un punto de análisis disponible.");
+  return {fn_index:dep.id,api_name:dep.api_name||null};
+}
+
+async function analizarBarkID(file){
+  const archivo=await subirArchivo(file);
+  const funcion=await obtenerFuncion();
+  const session_hash=crypto.randomUUID();
+  const res=await fetch(API_BASE+"/gradio_api/queue/join",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({data:[archivo],fn_index:funcion.fn_index,session_hash})
+  });
+  if(!res.ok)throw new Error("BarkID no aceptó la solicitud. Puede necesitar otro formato de entrada.");
+  const stream=await fetch(API_BASE+"/gradio_api/queue/data?session_hash="+encodeURIComponent(session_hash));
+  if(!stream.ok)throw new Error("No se pudo recibir la respuesta de BarkID.");
+  const text=await stream.text();
+  const lines=text.split(/\n+/);
+  for(const line of lines){
+    if(!line.startsWith("data:"))continue;
+    try{
+      const obj=JSON.parse(line.slice(5).trim());
+      if(obj.msg==="process_completed"){
+        const raw=obj.output?.data||obj.data||obj.output;
+        const raza=extraerRaza(raw);
+        if(raza)return raza;
+      }
+    }catch(e){}
+  }
+  throw new Error("BarkID no devolvió una raza legible. El Space puede usar otro formato de entrada.");
+}
+
+function mostrarResultado(raza){
+  const d=buscarDatos(raza);
+  resultado.style.display="block";
+  resultado.innerHTML=`
+    <div class="badge">Resultado de IA</div>
+    <h2>🐶 ${raza||"Raza no identificada"}</h2>
+    <div class="item"><b>⏳ Esperanza de vida:</b> ${d.vida}</div>
+    <div class="item"><b>📏 Tamaño:</b> ${d.tamano}</div>
+    <div class="item"><b>⭐ Características:</b> ${d.caracteristicas}</div>
+    <div class="item"><b>🩺 Cuidados:</b> ${d.cuidados}</div>
+    <p class="note">La identificación puede equivocarse, especialmente si la foto está borrosa o el perro es mestizo.</p>`;
+}
+
+btn.addEventListener("click",async()=>{
+  const file=foto.files[0];
+  if(!file){alert("Primero toma o selecciona una foto.");return;}
+  btn.disabled=true;
+  resultado.style.display="none";
+  mostrarEstado("Enviando la foto a BarkID...");
+  try{
+    const raza=await analizarBarkID(file);
+    mostrarEstado("Raza recibida correctamente.",true);
+    mostrarResultado(raza);
+  }catch(error){
+    mostrarEstado("No se pudo conectar automáticamente: "+error.message);
+    resultado.style.display="block";
+    resultado.innerHTML="<h3>⚠️ Conexión pendiente</h3><p>El Space de BarkID puede requerir un ajuste en su API o permitir la conexión solamente desde su propia página. La aplicación está preparada para intentar la conexión, pero todavía debe probarse en tu teléfono.</p>";
+  }finally{
+    btn.disabled=false;
+  }
+});
+</script>
+</body>
+</html>
