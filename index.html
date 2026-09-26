@@ -36,17 +36,14 @@
     <label for="foto">Selecciona una foto de tu perro</label>
     <input id="foto" type="file" accept="image/*">
     <img id="preview" alt="Vista previa">
-    <button id="analizarBtn" disabled>🤖 Reconocer raza automáticamente</button>
+    <button id="analizarBtn">🤖 Reconocer raza automáticamente</button>
     <div id="estado"></div>
   </div>
 
   <div id="resultado" class="card"></div>
 </div>
 
-<script type="module">
-import { Client, handle_file } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
-
-const API_BASE = "https://thathungarian-barkid.hf.space";
+<script>
 
 const foto = document.getElementById("foto");
 const preview = document.getElementById("preview");
@@ -55,207 +52,104 @@ const estado = document.getElementById("estado");
 const resultado = document.getElementById("resultado");
 
 const razas = {
-  "pug": {
-    nombre:"Pug", vida:"12–15 años", tamano:"Pequeño",
-    caracteristicas:"Perro pequeño, compacto y de hocico corto. Suele ser sociable y afectuoso.",
-    cuidados:"Necesita ejercicio moderado, vigilancia en climas calurosos y cuidado de sus pliegues."
-  },
-  "labrador retriever": {
-    nombre:"Labrador Retriever", vida:"10–12 años", tamano:"Mediano-grande",
-    caracteristicas:"Perro activo, sociable e inteligente.",
-    cuidados:"Requiere actividad física regular, estimulación mental y control de peso."
-  },
-  "german shepherd": {
-    nombre:"Pastor Alemán", vida:"9–13 años", tamano:"Grande",
-    caracteristicas:"Perro atlético, inteligente y de trabajo.",
-    cuidados:"Necesita ejercicio, entrenamiento y revisiones veterinarias."
-  },
-  "chihuahua": {
-    nombre:"Chihuahua", vida:"12–20 años", tamano:"Muy pequeño",
-    caracteristicas:"Raza de tamaño muy pequeño, alerta y activa.",
-    cuidados:"Protección frente al frío, actividad adecuada y atención dental."
-  },
-  "french bulldog": {
-    nombre:"Bulldog Francés", vida:"10–12 años", tamano:"Pequeño",
-    caracteristicas:"Perro compacto y de hocico corto.",
-    cuidados:"Evitar sobrecalentamiento y ejercicio intenso; mantener un peso saludable."
-  },
-  "golden retriever": {
-    nombre:"Golden Retriever", vida:"10–12 años", tamano:"Grande",
-    caracteristicas:"Perro activo, sociable e inteligente.",
-    cuidados:"Ejercicio diario, cepillado y estimulación mental."
-  },
-  "beagle": {
-    nombre:"Beagle", vida:"10–15 años", tamano:"Mediano",
-    caracteristicas:"Perro activo, curioso y con un olfato muy desarrollado.",
-    cuidados:"Necesita paseos, estimulación mental y control de peso."
-  }
+  "pug": {nombre:"Pug", vida:"12–15 años", tamano:"Pequeño", caracteristicas:"Perro pequeño, compacto y de hocico corto. Suele ser sociable y afectuoso.", cuidados:"Necesita ejercicio moderado, vigilancia en climas calurosos y cuidado de sus pliegues."},
+  "labrador retriever": {nombre:"Labrador Retriever", vida:"10–12 años", tamano:"Mediano-grande", caracteristicas:"Perro activo, sociable e inteligente.", cuidados:"Requiere actividad física regular, estimulación mental y control de peso."},
+  "german shepherd": {nombre:"Pastor Alemán", vida:"9–13 años", tamano:"Grande", caracteristicas:"Perro atlético, inteligente y de trabajo.", cuidados:"Necesita ejercicio, entrenamiento y revisiones veterinarias."},
+  "chihuahua": {nombre:"Chihuahua", vida:"12–20 años", tamano:"Muy pequeño", caracteristicas:"Raza de tamaño muy pequeño, alerta y activa.", cuidados:"Protección frente al frío, actividad adecuada y atención dental."},
+  "french bulldog": {nombre:"Bulldog Francés", vida:"10–12 años", tamano:"Pequeño", caracteristicas:"Perro compacto y de hocico corto.", cuidados:"Evitar sobrecalentamiento y ejercicio intenso; mantener un peso saludable."},
+  "golden retriever": {nombre:"Golden Retriever", vida:"10–12 años", tamano:"Grande", caracteristicas:"Perro activo, sociable e inteligente.", cuidados:"Ejercicio diario, cepillado y estimulación mental."},
+  "beagle": {nombre:"Beagle", vida:"10–15 años", tamano:"Mediano", caracteristicas:"Perro activo, curioso y con un olfato muy desarrollado.", cuidados:"Necesita paseos, estimulación mental y control de peso."}
 };
 
 function normalizar(t){
-  return String(t ?? "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\\u0300-\\u036f]/g,"")
-    .replace(/[-_]/g," ")
-    .trim();
+  return String(t ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[-_]/g," ").trim();
 }
 
 function datosDeRaza(nombre){
-  const n = normalizar(nombre);
-  const alias = {
-    "labrador":"labrador retriever",
-    "german shepherd dog":"german shepherd",
-    "pastor aleman":"german shepherd",
-    "pastor aleman":"german shepherd",
-    "french bulldog":"french bulldog",
-    "bulldog frances":"french bulldog",
-    "golden":"golden retriever"
-  };
-  return razas[alias[n] || n] || null;
+  const n=normalizar(nombre);
+  const alias={"labrador":"labrador retriever","labrador retriever":"labrador retriever","german shepherd dog":"german shepherd","german shepherd":"german shepherd","pastor aleman":"german shepherd","chihuahua":"chihuahua","pug dog":"pug","pug":"pug","french bulldog":"french bulldog","bulldog frances":"french bulldog","golden":"golden retriever","golden retriever":"golden retriever","beagle":"beagle"};
+  return razas[alias[n]||n]||null;
 }
 
-function extraerTexto(obj, out=[]){
-  if(obj == null) return out;
-  if(typeof obj === "string") { out.push(obj); return out; }
-  if(Array.isArray(obj)){ for(const x of obj) extraerTexto(x,out); return out; }
-  if(typeof obj === "object"){
-    for(const [k,v] of Object.entries(obj)){
-      if(["label","class","name","prediction","text","value"].includes(k) && typeof v === "string") out.push(v);
-      else extraerTexto(v,out);
-    }
-  }
-  return out;
-}
-
-function extraerRaza(data){
-  const textos = extraerTexto(data);
-  const todo = normalizar(JSON.stringify(data));
-
-  // Primero buscamos las razas que PetScan tiene con información.
-  for(const key of Object.keys(razas)){
-    if(todo.includes(normalizar(key))) return razas[key].nombre;
-  }
-  for(const [alias, key] of Object.entries({
-    "labrador":"labrador retriever",
-    "pastor aleman":"german shepherd",
-    "german shepherd dog":"german shepherd",
-    "bulldog frances":"french bulldog",
-    "golden":"golden retriever"
-  })){
-    if(todo.includes(alias)) return razas[key].nombre;
-  }
-
-  // Si la IA devuelve una etiqueta que no está en la lista local.
-  const posible = textos.find(x => x && x.length < 100 && /[a-záéíóúñ]/i.test(x));
-  return posible || null;
-}
-
-function mostrarEstado(texto, ok=false, error=false){
+function mostrarEstado(texto,ok=false,error=false){
   estado.style.display="block";
-  estado.className = error ? "err" : (ok ? "ok" : "");
-  estado.textContent = (ok ? "✅ " : error ? "⚠️ " : "⌛ ") + texto;
+  estado.className=error?"err":(ok?"ok":"");
+  estado.textContent=(ok?"✅ ":error?"⚠️ ":"⌛ ")+texto;
 }
 
-function mostrarResultado(raza, raw=null){
-  const d = datosDeRaza(raza);
+function mostrarResultado(raza, confianza){
+  const d=datosDeRaza(raza);
   resultado.style.display="block";
-  resultado.innerHTML = `
+  resultado.innerHTML=`
     <span class="badge">Resultado de IA</span>
-    <div class="result-title">🐶 ${raza || "Raza no identificada"}</div>
+    <div class="result-title">🐶 ${d?.nombre || raza || "Raza no identificada"}</div>
+    ${confianza ? `<p style="text-align:center">Confianza aproximada: ${Math.round(confianza*100)}%</p>` : ""}
     ${d ? `
       <div class="item"><b>⌛ Esperanza de vida:</b> ${d.vida}</div>
       <div class="item"><b>📏 Tamaño:</b> ${d.tamano}</div>
       <div class="item"><b>⭐ Características:</b> ${d.caracteristicas}</div>
       <div class="item"><b>🩺 Cuidados:</b> ${d.cuidados}</div>
-    ` : `
-      <div class="item"><b>ℹ️ Información:</b> La IA identificó esta etiqueta. PetScan todavía no tiene una ficha ampliada para esta raza.</div>
-    `}
-    <p class="note">La identificación automática es orientativa y puede equivocarse, especialmente si la foto no muestra claramente al perro.</p>
+    ` : `<div class="item"><b>ℹ️ Información:</b> La IA detectó una categoría de perro, pero PetScan no tiene una ficha ampliada para esa raza.</div>`}
+    <p class="note">La identificación es orientativa y puede equivocarse. Para mejores resultados, usa una foto clara donde se vea completo el perro.</p>
   `;
 }
 
-foto.addEventListener("change", () => {
-  const file = foto.files?.[0];
+foto.addEventListener("change",()=>{
+  const file=foto.files?.[0];
   resultado.style.display="none";
   estado.style.display="none";
-  if(!file){
-    preview.style.display="none";
-    btn.disabled=true;
-    return;
-  }
-  preview.src = URL.createObjectURL(file);
+  if(!file){preview.style.display="none";btn.disabled=true;return;}
+  preview.src=URL.createObjectURL(file);
   preview.style.display="block";
   btn.disabled=false;
 });
 
-let cliente = null;
-let endpoint = null;
+let clasificador=null;
 
-async function conectarBarkID(){
-  if(cliente && endpoint) return;
-  mostrarEstado("Conectando con BarkID…");
-  cliente = await Client.connect(API_BASE, {
-    status_callback: (s) => {
-      if(s?.status === "sleeping") mostrarEstado("Despertando BarkID…");
-    }
-  });
-
-  const info = await cliente.view_api();
-  const endpoints = Object.entries(info?.named_endpoints || {});
-  if(!endpoints.length) throw new Error("BarkID no mostró endpoints de API.");
-
-  // Elegimos el endpoint que recibe una imagen/archivo.
-  let elegido = endpoints.find(([name, ep]) => {
-    const p = ep?.parameters || [];
-    return p.length >= 1 && /image|file/i.test(JSON.stringify(p[0]));
-  });
-
-  if(!elegido) elegido = endpoints.find(([name]) => /predict|classif|infer|analy/i.test(name));
-  if(!elegido) elegido = endpoints[0];
-
-  endpoint = elegido[0];
+async function cargarIA(){
+  if(clasificador) return clasificador;
+  mostrarEstado("Cargando la inteligencia artificial… la primera vez puede tardar un poco.");
+  const mod=await import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2/+esm");
+  mod.env.allowLocalModels=false;
+  mod.env.useBrowserCache=true;
+  clasificador=await mod.pipeline("image-classification","Xenova/vit-base-patch16-224");
+  return clasificador;
 }
 
-async function analizarBarkID(file){
-  await conectarBarkID();
-  const entrada = await handle_file(file);
-  const respuesta = await cliente.predict(endpoint, [entrada]);
-  const raza = extraerRaza(respuesta?.data ?? respuesta);
-  if(!raza) throw new Error("BarkID respondió, pero no se pudo leer la raza.");
-  return raza;
+function esPerro(label){
+  const x=normalizar(label);
+  return /(pug|retriever|shepherd|german|labrador|chihuahua|bulldog|beagle|terrier|spaniel|hound|husky|malamute|collie|dalmatian|dachshund|doberman|rottweiler|poodle|schnauzer|mastiff|boxer|samoyed|akita|papillon|pekinese|pomeranian|corgi|shih|greyhound|whippet|setter|pointer|newfoundland|saint bernard|great dane|wolfhound|dog)/i.test(x);
 }
 
-btn.addEventListener("click", async () => {
-  const file = foto.files?.[0];
-  if(!file){
-    alert("Primero selecciona una foto.");
-    return;
-  }
+function convertirRaza(label){
+  const x=normalizar(label);
+  if(x.includes("pug")) return "pug";
+  if(x.includes("labrador")) return "labrador retriever";
+  if(x.includes("golden retriever")) return "golden retriever";
+  if(x.includes("german shepherd") || x.includes("german shepard")) return "german shepherd";
+  if(x.includes("chihuahua")) return "chihuahua";
+  if(x.includes("french bulldog")) return "french bulldog";
+  if(x.includes("beagle")) return "beagle";
+  return label;
+}
 
+btn.addEventListener("click",async()=>{
+  const file=foto.files?.[0];
+  if(!file){alert("Primero selecciona una foto.");return;}
   btn.disabled=true;
   resultado.style.display="none";
-
   try{
-    const raza = await analizarBarkID(file);
-    mostrarEstado("Raza identificada correctamente.", true);
-    mostrarResultado(raza);
+    const ia=await cargarIA();
+    mostrarEstado("Analizando la foto…");
+    const resultados=await ia(preview.src,{top_k:5});
+    const perro=resultados.find(x=>esPerro(x.label)) || resultados[0];
+    const raza=convertirRaza(perro.label);
+    mostrarEstado("Análisis terminado.",true);
+    mostrarResultado(raza,perro.score);
   }catch(error){
     console.error(error);
-    mostrarEstado(
-      "No se pudo completar el análisis. BarkID puede estar dormido, ocupado o haber cambiado su API.",
-      false,
-      true
-    );
-    resultado.style.display="block";
-    resultado.innerHTML = `
-      <span class="badge">PetScan</span>
-      <div class="result-title">⚠️ No se pudo analizar la foto</div>
-      <p>Intenta nuevamente en unos segundos. Si BarkID está disponible, PetScan se conectará automáticamente.</p>
-    `;
-  }finally{
-    btn.disabled=false;
-  }
+    mostrarEstado("No se pudo cargar la IA. Revisa tu conexión a internet e inténtalo otra vez.",false,true);
+  }finally{btn.disabled=false;}
 });
 </script>
 </body>
